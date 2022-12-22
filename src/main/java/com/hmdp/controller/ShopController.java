@@ -10,6 +10,7 @@ import com.hmdp.utils.SystemConstants;
 import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.Resource;
+import java.util.Optional;
 
 /**
  * <p>
@@ -33,7 +34,8 @@ public class ShopController {
      */
     @GetMapping("/{id}")
     public Result queryShopById(@PathVariable("id") Long id) {
-        return shopService.queryById(id);
+        Shop shop = shopService.queryById(id);
+        return shop == null ? Result.fail("商铺不存在") : Result.ok(shop);
     }
 
     /**
@@ -57,8 +59,7 @@ public class ShopController {
     @PutMapping
     public Result updateShop(@RequestBody Shop shop) {
         // 写入数据库
-        shopService.updateById(shop);
-        return Result.ok();
+        return  shopService.updateById(shop) ? Result.ok(): Result.fail("更新失败");
     }
 
     /**

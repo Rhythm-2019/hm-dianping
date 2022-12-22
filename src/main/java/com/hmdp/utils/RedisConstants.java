@@ -22,4 +22,10 @@ public class RedisConstants {
 
     public static final String SHOP_TYPE_LIST_KEY = "shop-type:list";
     public static final Long SHOP_TYPE_LIST_TTL = 60L;
+
+    public static final String NO_EXIST_VALUE = "NO_EXIST";
+    public static final String LOCK_VALUE = "1";
+    public static final Long NO_EXIST_TTL = 1L;
+
+
 }

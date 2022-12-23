@@ -8,6 +8,7 @@ import com.hmdp.entity.Shop;
 import com.hmdp.mapper.ShopMapper;
 import com.hmdp.service.IShopService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.hmdp.utils.CacheClient;
 import com.hmdp.utils.RedisConstants;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -35,6 +36,9 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
     @Resource
     private StringRedisTemplate stringRedisTemplate;
 
+    @Resource
+    private CacheClient cacheClient;
+
     @Override
     public Shop queryById(Long id) {
         // 缓存穿透
@@ -49,7 +53,10 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
         // 缓存击穿解法一：互斥锁
         // return queryByIdWithMutex(id);
         // 缓存击穿解法二：逻辑过期
-        return queryByIdWithLogicalExpire(id);
+        // return queryByIdWithLogicalExpire(id);
+
+        return cacheClient.getWithLogicalExpire(RedisConstants.CACHE_SHOP_KEY, id, Shop.class, this::getById,
+                RedisConstants.LOCK_SHOP_TTL, TimeUnit.SECONDS);
     }
 
 

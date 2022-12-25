@@ -27,5 +27,7 @@ public class RedisConstants {
     public static final String LOCK_VALUE = "1";
     public static final Long NO_EXIST_TTL = 1L;
 
+    public static final String VOUCHER_ORDER_ID_KEY = "voucher:order";
+
 
 }

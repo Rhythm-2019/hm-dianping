@@ -17,4 +17,6 @@ public interface IVoucherOrderService extends IService<VoucherOrder> {
     Result secKillVoucher(Long voucherId, Long userId);
 
     Result secKillVoucherOptimisticLock(Long voucherId, Long userId);
+
+    Result secKillVoucherUserOnce(Long voucherId, Long userId);
 }

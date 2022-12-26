@@ -29,5 +29,4 @@ public class RedisConstants {
 
     public static final String VOUCHER_ORDER_ID_KEY = "voucher:order";
 
-
 }

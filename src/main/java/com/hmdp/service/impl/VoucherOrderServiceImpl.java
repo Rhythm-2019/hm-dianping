@@ -1,28 +1,42 @@
 package com.hmdp.service.impl;
 
+import cn.hutool.core.bean.BeanUtil;
+import cn.hutool.core.util.RandomUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.dto.Result;
 import com.hmdp.entity.SeckillVoucher;
 import com.hmdp.entity.VoucherOrder;
 import com.hmdp.mapper.VoucherOrderMapper;
 import com.hmdp.service.ISeckillVoucherService;
 import com.hmdp.service.IVoucherOrderService;
-import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.utils.RedisConstants;
 import com.hmdp.utils.RedisIdWorker;
-import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
-import org.springframework.aop.framework.AopContext;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.data.redis.connection.stream.*;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import javax.annotation.PostConstruct;
+import javax.annotation.PreDestroy;
 import javax.annotation.Resource;
+import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * <p>
- *  服务实现类
+ * 服务实现类
  * </p>
  *
  * @author 虎哥
@@ -41,6 +55,21 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 
     @Resource
     private RedissonClient redissonClient;
+
+    @Value("${spring.application.name}")
+    private String appName;
+
+    private static final BlockingQueue<VoucherOrder> createOrderQueue = new ArrayBlockingQueue<>(1024 * 1024);
+    private static final ExecutorService CREATE_ORDER_EXECUTOR = Executors.newSingleThreadExecutor();
+
+    private static DefaultRedisScript<Long> seckillScript;
+
+    static {
+        seckillScript = new DefaultRedisScript<>();
+        seckillScript.setLocation(new ClassPathResource("redis/seckill.lua"));
+        seckillScript.setResultType(Long.class);
+    }
+
 
     @Override
     public Result secKillVoucher(Long voucherId, Long userId) {
@@ -68,6 +97,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         // }
 
         // 使用悲观锁完成秒杀，使用工具类
+        /*
         RLock lock = redissonClient.getLock("voucher:seckill:" + userId);
         if (!lock.tryLock()) {
             return Result.fail("一人只能下一单");
@@ -78,8 +108,131 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             // 注意解锁时如果不是自己加的锁则会报错
             lock.unlock();
         }
+        */
+
+        // 使用异步方式优化，将购买权限资格判断放入 Redis，创建订单的任务交给其他线程异步执行
+        return secKillVoucherByRedis(voucherId, userId);
     }
 
+
+    private Result secKillVoucherByRedis(Long voucherId, Long userId) {
+        long orderId = redisIdWorker.nextId(RedisConstants.VOUCHER_ORDER_ID_KEY);
+        Long result = stringRedisTemplate.execute(seckillScript,
+                Arrays.asList(RedisConstants.SECKILL_STOCK_KEY + voucherId, RedisConstants.SECKILL_ORDER_USER_KEY + voucherId, RedisConstants.SECKILL_ORDER_STREAM_NAME),
+                voucherId.toString(), userId.toString(), orderId + "");
+        switch (result.intValue()) {
+            case 0:
+                VoucherOrder voucherOrder = new VoucherOrder();
+                voucherOrder.setId(orderId);
+                voucherOrder.setUserId(userId);
+                voucherOrder.setVoucherId(voucherId);
+                // 依赖本地消息队列存在下面问题：
+                // 1. 服务不稳定，宕机后数据会丢失
+                // 2. 任务积压会导致 OOM
+                // createOrderQueue.add(voucherOrder);
+
+                return Result.ok(orderId);
+            case 1:
+                return Result.fail("该商铺不参与秒杀");
+            case 2:
+                return Result.fail("库存不足");
+            case 3:
+                return Result.fail("一人限购一单");
+            default:
+                throw new RuntimeException("No expected");
+        }
+    }
+
+    @PostConstruct
+    public void init() {
+        CREATE_ORDER_EXECUTOR.submit(new CreateOrderTask(appName, appName + RandomUtil.randomString(6)));
+    }
+
+    private class CreateOrderTask implements Runnable {
+
+        private String groupId;
+        private String consumerId;
+
+        public CreateOrderTask(String groupId, String consumerId) {
+            this.groupId = groupId;
+            this.consumerId = consumerId;
+        }
+
+        @Override
+        public void run() {
+            this.handle(false);
+        }
+
+        private void handle(boolean meetError) {
+            while (true) {
+                // VoucherOrder voucherOrder = createOrderQueue.take();
+
+                try {
+                    // 使用 Stream 获取消息
+                    ReadOffset readOffset = ReadOffset.lastConsumed();
+                    if (meetError) {
+                        readOffset = ReadOffset.from("0");
+                    }
+                    List<MapRecord<String, Object, Object>> msgRecordList = stringRedisTemplate.opsForStream().read(
+                            Consumer.from(this.groupId, this.consumerId),
+                            StreamReadOptions.empty().count(1).block(Duration.ofSeconds(2)),
+                            StreamOffset.create(RedisConstants.SECKILL_ORDER_STREAM_NAME, readOffset));
+                    if (msgRecordList == null || msgRecordList.isEmpty()) {
+                        if (meetError) {
+                            break;
+                        }
+                        continue;
+                    }
+                    MapRecord<String, Object, Object> mapRecord = msgRecordList.get(0);
+                    Map<Object, Object> msgMap = mapRecord.getValue();
+                    VoucherOrder voucherOrder = BeanUtil.fillBeanWithMap(msgMap, new VoucherOrder(), true);
+
+                    this.createOrder(voucherOrder);
+
+                    stringRedisTemplate.opsForStream().acknowledge(this.groupId, this.consumerId, mapRecord.getId());
+                } catch (Exception e) {
+                    log.error("消费失败", e);
+                    if (!meetError) {
+                        handle(true);
+                    }
+                }
+            }
+        }
+
+
+        private void createOrder(VoucherOrder voucherOrder) {
+            SeckillVoucher seckillVoucher = seckillVoucherService.getById(voucherOrder.getVoucherId());
+            if (seckillVoucher == null) {
+                log.error(String.format("下单失败：找不到优惠券：%s", voucherOrder));
+                return;
+            }
+            LocalDateTime now = LocalDateTime.now();
+            if (now.isBefore(seckillVoucher.getBeginTime())) {
+                log.error(String.format("下单失败：秒杀未开始：%s", voucherOrder));
+                return;
+            }
+            if (now.isAfter(seckillVoucher.getEndTime())) {
+                log.error(String.format("下单失败：秒杀已结束：%s", voucherOrder));
+                return;
+            }
+            if (seckillVoucher.getStock() < 1) {
+                log.error(String.format("下单失败：库存不足：%s", voucherOrder));
+                return;
+            }
+            // 扣减库存【存在超卖问题】
+            boolean isSuccess = seckillVoucherService.update()
+                    .setSql("stock = stock - 1")
+                    .gt("stock", 0)
+                    .eq("voucher_id", voucherOrder.getVoucherId())
+                    .update();
+            VoucherOrderServiceImpl.this.save(voucherOrder);
+        }
+    }
+
+    @PreDestroy
+    public void destroy() {
+        CREATE_ORDER_EXECUTOR.shutdown();
+    }
 
     @Override
     @Transactional
@@ -106,7 +259,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         // 3 第一种方式用户抢购失败率比较高，我们可以取巧使用 .gt("stock", 0) 提高效率
         boolean isSuccess = seckillVoucherService.update()
                 .setSql("stock = stock - 1")
-        //      .gt("stock", 0)
+                //      .gt("stock", 0)
                 .eq("stock", seckillVoucher.getStock())
                 .eq("voucher_id", voucherId)
                 .update();
@@ -169,7 +322,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     }
 
     @Transactional
-    private Result secKillVoucherSingleThread(Long voucherId, Long userId) {
+    public Result secKillVoucherSingleThread(Long voucherId, Long userId) {
         // 检查优惠券是否足够
         SeckillVoucher seckillVoucher = seckillVoucherService.getById(voucherId);
         if (seckillVoucher == null) {

@@ -33,5 +33,5 @@ public class RedisConstants {
     public static final String SECKILL_ORDER_STREAM_NAME = "stream:seckill:order";
 
 
-
+    public static final String FOLLOW_KEY = "follow:";
 }

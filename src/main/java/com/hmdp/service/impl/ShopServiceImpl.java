@@ -55,7 +55,10 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
         // 缓存击穿解法二：逻辑过期
         // return queryByIdWithLogicalExpire(id);
 
-        return cacheClient.getWithLogicalExpire(RedisConstants.CACHE_SHOP_KEY, id, Shop.class, this::getById,
+        // return cacheClient.getWithLogicalExpire(RedisConstants.CACHE_SHOP_KEY, id, Shop.class, this::getById,
+        //        RedisConstants.LOCK_SHOP_TTL, TimeUnit.SECONDS);
+
+        return cacheClient.getWithPassThought(RedisConstants.CACHE_SHOP_KEY, id, Shop.class, this::getById,
                 RedisConstants.LOCK_SHOP_TTL, TimeUnit.SECONDS);
     }
 

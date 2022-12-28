@@ -1,6 +1,7 @@
 package com.hmdp.controller;
 
 
+import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.hmdp.dto.Result;
 import com.hmdp.dto.UserDTO;
@@ -34,13 +35,10 @@ public class BlogController {
 
     @PostMapping
     public Result saveBlog(@RequestBody Blog blog) {
-        // 获取登录用户
-        UserDTO user = UserHolder.getUser();
-        blog.setUserId(user.getId());
-        // 保存探店博文
-        blogService.save(blog);
-        // 返回id
-        return Result.ok(blog.getId());
+        if (UserHolder.getUser() == null) {
+            return Result.fail("请先登录");
+        }
+        return Result.ok(blogService.saveBlog(blog));
     }
 
     @PutMapping("/like/{id}")
@@ -79,5 +77,27 @@ public class BlogController {
     @GetMapping("likes/{id}")
     public Result getLikeUsers(@PathVariable("id") String id) {
         return blogService.getLikeUserList(id);
+    }
+
+
+
+    // BlogController
+    @GetMapping("/of/user")
+    public Result queryBlogByUserId(
+            @RequestParam(value = "current", defaultValue = "1") Integer current,
+            @RequestParam("id") Long id) {
+        // 根据用户查询
+        Page<Blog> page = blogService.query()
+                .eq("user_id", id).page(new Page<>(current, SystemConstants.MAX_PAGE_SIZE));
+        // 获取当前页数据
+        List<Blog> records = page.getRecords();
+        return Result.ok(records);
+    }
+
+    @GetMapping("/of/follow")
+    public Result scrollFollowBlog(@RequestParam(value = "lastId") Long lastId,
+                                   @RequestParam(value = "offset", defaultValue = "0") Integer offset) {
+
+        return Result.ok(blogService.scrollFollowBlog(lastId, offset));
     }
 }

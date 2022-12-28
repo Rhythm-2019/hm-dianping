@@ -22,8 +22,10 @@ import org.springframework.util.StringUtils;
 import javax.annotation.Resource;
 import javax.servlet.http.HttpSession;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 /**
  * <p>
@@ -69,6 +71,16 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
             return loginWithPassword(session, loginForm);
         }
         return loginWithCode(session, loginForm);
+    }
+
+    @Override
+    public List<UserDTO> queryByIds(List<Long> ids) {
+        return query().in("id", ids)
+                .last(String.format("ORDER BY FIELD(id, %s)", StrUtil.join(",", ids)))
+                .list()
+                .stream()
+                .map(user -> BeanUtil.copyProperties(user, UserDTO.class))
+                .collect(Collectors.toList());
     }
 
     private Result loginWithCode(HttpSession session, LoginFormDTO loginForm) {

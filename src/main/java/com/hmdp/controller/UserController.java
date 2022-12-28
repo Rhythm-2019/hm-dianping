@@ -21,6 +21,7 @@ import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.Resource;
 import javax.servlet.http.HttpSession;
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -112,6 +113,31 @@ public class UserController {
         UserDTO userDTO = BeanUtil.copyProperties(user, UserDTO.class);
         // 返回
         return Result.ok(userDTO);
+    }
+
+    @PutMapping("sign")
+    public Result sign(@RequestParam(value = "date", required = false)LocalDateTime date) {
+        UserDTO userDTO = UserHolder.getUser();
+        if (userDTO == null) {
+            return Result.fail("未登录");
+        }
+        userService.sign(userDTO.getId(), date);
+
+        return Result.ok();
+    }
+
+    @GetMapping("/sign/mouth/serial")
+    public Result signCount() {
+        UserDTO userDTO = UserHolder.getUser();
+        if (userDTO == null) {
+            return Result.ok(0);
+        }
+        return Result.ok(userService.signCountInMount(userDTO.getId()));
+    }
+
+    @GetMapping("/uv")
+    public Result uvCount() {
+        return Result.ok(userService.uvCount());
     }
 
 }

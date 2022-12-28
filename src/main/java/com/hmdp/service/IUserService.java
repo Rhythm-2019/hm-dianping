@@ -7,6 +7,7 @@ import com.hmdp.dto.UserDTO;
 import com.hmdp.entity.User;
 
 import javax.servlet.http.HttpSession;
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -24,4 +25,10 @@ public interface IUserService extends IService<User> {
     Result login(HttpSession session, LoginFormDTO loginForm);
 
     List<UserDTO> queryByIds(List<Long> ids);
+
+    void sign(Long id, LocalDateTime date);
+
+    int signCountInMount(Long id);
+
+    Long uvCount();
 }

@@ -34,4 +34,5 @@ public class RedisConstants {
 
 
     public static final String FOLLOW_KEY = "follow:";
+    public static final String UV_KEY = "uv";
 }

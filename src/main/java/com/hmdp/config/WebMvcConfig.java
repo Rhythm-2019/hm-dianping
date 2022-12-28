@@ -2,6 +2,7 @@ package com.hmdp.config;
 
 import com.hmdp.intercceptor.LoginInterceptor;
 import com.hmdp.intercceptor.RefreshUserTokenExpireInterceptor;
+import com.hmdp.intercceptor.UVStatisticsInterceptor;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
@@ -20,6 +21,8 @@ public class WebMvcConfig  extends WebMvcConfigurationSupport {
     private StringRedisTemplate stringRedisTemplate;
     @Override
     protected void addInterceptors(InterceptorRegistry registry) {
+        registry.addInterceptor(new UVStatisticsInterceptor(stringRedisTemplate))
+                .excludePathPatterns("/user/uv");
         registry.addInterceptor(new RefreshUserTokenExpireInterceptor(stringRedisTemplate));
         registry.addInterceptor(new LoginInterceptor())
                 .excludePathPatterns(

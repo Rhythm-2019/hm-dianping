@@ -15,12 +15,15 @@ import com.hmdp.mapper.UserMapper;
 import com.hmdp.service.IUserService;
 import com.hmdp.utils.RedisConstants;
 import com.hmdp.utils.RegexUtils;
+import org.springframework.data.redis.connection.BitFieldSubCommands;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import javax.annotation.Resource;
 import javax.servlet.http.HttpSession;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -81,6 +84,44 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
                 .stream()
                 .map(user -> BeanUtil.copyProperties(user, UserDTO.class))
                 .collect(Collectors.toList());
+    }
+
+    @Override
+    public void sign(Long id, LocalDateTime date) {
+        if (date == null) {
+            date = LocalDateTime.now();
+        }
+        stringRedisTemplate.opsForValue()
+                .setBit(RedisConstants.USER_SIGN_KEY + id + date.format(DateTimeFormatter.ofPattern(":yyyyMM")),
+                        date.getDayOfMonth() - 1, true);
+    }
+
+    @Override
+    public int signCountInMount(Long id) {
+        LocalDateTime now = LocalDateTime.now();
+        List<Long> resultList = stringRedisTemplate.opsForValue()
+                .bitField(RedisConstants.USER_SIGN_KEY + id + now.format(DateTimeFormatter.ofPattern(":yyyyMM")),
+                        BitFieldSubCommands.create().get(BitFieldSubCommands.BitFieldType.unsigned(now.getDayOfMonth())).valueAt(0));
+        if (resultList == null || resultList.isEmpty()) {
+            return 0;
+        }
+        long sign = resultList.get(0);
+        // 来到最后一天签到的日期
+        sign = sign >>> ((sign & -sign) - 1);
+
+        int count = 0;
+        while ((sign & 1) == 1) {
+            count++;
+            sign >>>= 1;
+        }
+
+        return count;
+    }
+
+    @Override
+    public Long uvCount() {
+        return stringRedisTemplate.opsForHyperLogLog()
+                .size(RedisConstants.UV_KEY);
     }
 
     private Result loginWithCode(HttpSession session, LoginFormDTO loginForm) {

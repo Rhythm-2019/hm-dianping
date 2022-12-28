@@ -30,4 +30,5 @@ public interface IBlogService extends IService<Blog> {
     ScrollResult scrollFollowBlog(Long lastId, Integer offset);
 
     List<Blog> queryBlogByIds(List<Long> blogIdList);
+
 }
